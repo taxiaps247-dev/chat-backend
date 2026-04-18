@@ -44,9 +44,14 @@ def health():
 @app.get("/me")
 def get_me(token: str):
     try:
+        print("DEBUG /me -> token recibido")
         decoded = verify_firebase_token(token)
+        print("DEBUG /me -> token decodificado:", decoded)
+
         uid = decoded["uid"]
         profile = get_user_profile(uid)
+        print("DEBUG /me -> uid:", uid)
+        print("DEBUG /me -> profile:", profile)
 
         if not profile:
             raise HTTPException(
@@ -61,6 +66,7 @@ def get_me(token: str):
     except HTTPException:
         raise
     except Exception as e:
+        print("DEBUG /me ERROR:", repr(e))
         raise HTTPException(status_code=401, detail=str(e))
 
 
