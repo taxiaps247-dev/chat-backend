@@ -19,7 +19,8 @@ app.add_middleware(
         "http://localhost:4200",
         "http://localhost:4300",
         "https://taxiapp247.com",
-        "https://www.taxiapp247.com"
+        "https://www.taxiapp247.com",
+        "https://taxi-app-247.web.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
