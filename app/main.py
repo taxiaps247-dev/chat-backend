@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.firebase_config import init_firebase, verify_firebase_token
+from app.firebase_config import get_firestore_client, init_firebase, verify_firebase_token
 from app.websocket_manager import ConnectionManager
 from app.chat_service import (
     get_user_profile,
@@ -109,7 +109,7 @@ def chat_messages(chat_id: str, token: str, limit: int = 50):
         allowed_chat_ids = {item["chatId"] for item in user_chats}
 
         if chat_id not in allowed_chat_ids:
-            raise HTTPException(status_code=403, detail="No tienes acceso a este chat")
+            return {"items": []}
 
         return {
             "items": get_chat_messages(chat_id, limit=limit)
@@ -118,7 +118,6 @@ def chat_messages(chat_id: str, token: str, limit: int = 50):
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
-
 
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket, token: str = Query(...)):
@@ -214,3 +213,55 @@ async def websocket_chat(websocket: WebSocket, token: str = Query(...)):
             if user_id:
                 manager.disconnect(user_id)
             await websocket.close()
+
+@app.delete("/chats/{chat_id}")
+def delete_chat(chat_id: str, token: str):
+    try:
+        decoded = verify_firebase_token(token)
+        uid = decoded["uid"]
+
+        profile = get_user_profile(uid)
+        if not profile or profile.get("collection") != "UsersAdministration":
+            raise HTTPException(status_code=403, detail="Solo administrador puede cerrar conversaciones")
+
+        db = get_firestore_client()
+        chat_ref = db.collection("chats").document(chat_id)
+        chat_doc = chat_ref.get()
+
+        if not chat_doc.exists:
+            return {"ok": True, "message": "La conversación ya no existe"}
+
+        data = chat_doc.to_dict() or {}
+        participants = data.get("participants", [])
+
+        if uid not in participants:
+            raise HTTPException(status_code=403, detail="No tienes acceso a esta conversación")
+
+        messages_ref = chat_ref.collection("messages")
+        docs = list(messages_ref.stream())
+
+        batch = db.batch()
+        count = 0
+
+        for doc_snap in docs:
+            batch.delete(doc_snap.reference)
+            count += 1
+
+            if count % 400 == 0:
+                batch.commit()
+                batch = db.batch()
+
+        batch.delete(chat_ref)
+        batch.commit()
+
+        return {
+            "ok": True,
+            "chatId": chat_id,
+            "participants": participants,
+            "message": "Conversación eliminada correctamente"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
